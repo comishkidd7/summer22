@@ -18,21 +18,269 @@ knitr::opts_chunk$set(echo = TRUE)
 
 #info on comparing data over time: #https://www.census.gov/data/developers/data-sets/acs-5year.html
 #info on tidycensus
-
+#https://walker-data.com/tidycensus/
 
 library(tidyverse)
 library(tidycensus)
 
-census_api_key("68432a7c59eb07fe808c51dd299beee2ec5c765")
+census_api_key("68432a7c59eb07fe808c5f1dd299beee2ec5c765")
 
+vars <- paste0("B19326_001")#median income over past 12 months
 
 acs5 <- load_variables(2009, "acs5", cache = TRUE)
 
-get_acs(geography = "congressional district",
-        variables = ,
-        year = )
+acs05_09 <- get_acs(geography = "congressional district",
+        variables = vars,
+        year = 2009)
+```
 
-#how many years can I get? Will I have to aggregate by 5 year estimates?
+```{r, clean mbr wealth data (open secrets)}
+library(ggplot2)
+
+#Assets
+library(readr)
+assets <- read_csv("assets.csv")
+
+#delete duplicates
+assets$Dupe1[assets$Dupe1 == 'd' | assets$Dupe1 == 'D'] <- 1
+assets$Dupe2[assets$Dupe2 == 'D' | assets$Dupe2 == 'd'] <- 1
+
+assets$Dupe1[assets$Dupe1 == ',' | is.na(assets$Dupe1)] <- 0
+assets$Dupe2[assets$Dupe2 == ',' | is.na(assets$Dupe2)] <- 0
+
+
+assets$Dupe1 <- as.numeric(as.character(assets$Dupe1))
+assets$Dupe2 <- as.numeric(as.character(assets$Dupe2))
+
+assets <- subset(assets, Dupe1 == 0 & Dupe2 == 0 ) # starts w/ 440,921 & drops 67,763 duplicates
+
+#Clean up Exact Values of assets
+assets$AssetExactValue <- gsub( ',', '', assets$AssetExactValue) #replace ","
+assets$AssetExactValue[assets$AssetExactValue == ""] <-NA
+assets$AssetExactValue[assets$AssetExactValue == "Tax-Deferred"] <-NA
+assets$AssetExactValue[assets$AssetExactValue == "R"] <-NA
+assets$AssetExactValue[assets$AssetExactValue == "r"] <-NA
+assets$AssetExactValue[assets$AssetExactValue == "m"] <-NA
+assets$AssetExactValue[assets$AssetExactValue == "k"] <-NA
+assets$AssetExactValue[assets$AssetExactValue == "l"] <-NA
+assets$AssetExactValue[assets$AssetExactValue == "f"] <-NA
+assets$AssetExactValue[assets$AssetExactValue == "|"] <-NA
+assets$AssetExactValue <- as.numeric(as.character(assets$AssetExactValue))
+
+  ##convert NAs to 0 and add a dummy when assets have exact values 
+assets$AssetExactValue[is.na(assets$AssetExactValue)] <-0
+assets$Exact <- NA
+assets$Exact <- ifelse(assets$AssetExactValue > 0, 1, 0)
+
+
+#Then, we separate House and Senate assets
+hassets <- subset(assets, Chamber =="H" | Chamber == "h")
+sassets <- subset(assets, Chamber =="S" | Chamber == "s")
+
+#Then, we create new columns for the min and max asset values based on the coding
+  
+  ##H min assets
+hassets$minvalue <- NA
+hassets$minvalue[hassets$AssetValue =="A"]<- 0
+hassets$minvalue[hassets$AssetValue =="B"]<- 1
+hassets$minvalue[hassets$AssetValue =="C"]<- 1001
+hassets$minvalue[hassets$AssetValue =="D"]<- 15001
+hassets$minvalue[hassets$AssetValue =="E"]<- 50001
+hassets$minvalue[hassets$AssetValue =="F"]<- 100001
+hassets$minvalue[hassets$AssetValue =="G"]<- 250001
+hassets$minvalue[hassets$AssetValue =="H"]<- 500001
+hassets$minvalue[hassets$AssetValue =="I"]<- 1000001
+hassets$minvalue[hassets$AssetValue =="J"]<- 5000001
+hassets$minvalue[hassets$AssetValue =="K"]<- 25000001
+hassets$minvalue[hassets$AssetValue =="L"]<- 50000001
+hassets$minvalue <- ifelse(hassets$Exact == 1, hassets$AssetExactValue, hassets$minvalue)#if there is an exact value of asset include, if not just print the min value 
+
+
+  ##H max assets
+hassets$maxvalue <- NA
+hassets$maxvalue[hassets$AssetValue =="A"]<- 0
+hassets$maxvalue[hassets$AssetValue =="B"]<- 1000
+hassets$maxvalue[hassets$AssetValue =="C"]<- 15000
+hassets$maxvalue[hassets$AssetValue =="D"]<- 50000
+hassets$maxvalue[hassets$AssetValue =="E"]<- 100000
+hassets$maxvalue[hassets$AssetValue =="F"]<- 250000
+hassets$maxvalue[hassets$AssetValue =="G"]<- 500000
+hassets$maxvalue[hassets$AssetValue =="H"]<- 1000000
+hassets$maxvalue[hassets$AssetValue =="I"]<- 5000000
+hassets$maxvalue[hassets$AssetValue =="J"]<- 25000000
+hassets$maxvalue[hassets$AssetValue =="K"]<- 50000000
+hassets$maxvalue[hassets$AssetValue =="L"]<- 50000001
+hassets$maxvalue <- ifelse(hassets$Exact == 1, hassets$AssetExactValue, hassets$maxvalue)#if there is an exact value of asset include, if not just print the max value 
+
+  ##S min assets
+sassets$minvalue <- NA
+sassets$minvalue[sassets$AssetValue =="A"]<- 0
+sassets$minvalue[sassets$AssetValue =="B"]<- 1001
+sassets$minvalue[sassets$AssetValue =="C"]<- 15001
+sassets$minvalue[sassets$AssetValue =="D"]<- 50001
+sassets$minvalue[sassets$AssetValue =="E"]<- 100001
+sassets$minvalue[sassets$AssetValue =="F"]<- 250001
+sassets$minvalue[sassets$AssetValue =="G"]<- 500001
+sassets$minvalue[sassets$AssetValue =="H"]<- 1000001
+sassets$minvalue[sassets$AssetValue =="I"]<- 1000001 #duplicates in coding for some reason
+sassets$minvalue[sassets$AssetValue =="J"]<- 5000001
+sassets$minvalue[sassets$AssetValue =="K"]<- 25000001
+sassets$minvalue[sassets$AssetValue =="L"]<- 50000001
+sassets$minvalue <- ifelse(sassets$Exact == 1, sassets$AssetExactValue, sassets$minvalue)#if there is an exact value of asset include, if not just print the min value 
+
+
+  ##S max assets
+sassets$maxvalue <- NA
+sassets$maxvalue[sassets$AssetValue =="A"]<- 1000
+sassets$maxvalue[sassets$AssetValue =="B"]<- 15000
+sassets$maxvalue[sassets$AssetValue =="C"]<- 50000
+sassets$maxvalue[sassets$AssetValue =="D"]<- 100000
+sassets$maxvalue[sassets$AssetValue =="E"]<- 250000
+sassets$maxvalue[sassets$AssetValue =="F"]<- 500000
+sassets$maxvalue[sassets$AssetValue =="G"]<- 1000000
+sassets$maxvalue[sassets$AssetValue =="H"]<- 1000001
+sassets$maxvalue[sassets$AssetValue =="I"]<- 5000000
+sassets$maxvalue[sassets$AssetValue =="J"]<- 25000000
+sassets$maxvalue[sassets$AssetValue =="K"]<- 50000000
+sassets$maxvalue[sassets$AssetValue =="L"]<- 50000001
+sassets$maxvalue <- ifelse(sassets$Exact == 1, sassets$AssetExactValue, sassets$maxvalue)#if there is an exact value of asset include, if not just print the max value 
+
+rm(assets)
+
+h_mbr_assets <- aggregate(cbind(minvalue, maxvalue) ~ CID + CalendarYear, data = hassets, sum)
+
+
+#Merge in legislator identification
+legislators_historical <- read_csv("legislators-historical.csv")
+legislators_current <- read_csv("legislators-current.csv.csv")
+legislators <- rbind(legislators_historical, legislators_current)
+
+
+house <- merge(h_mbr_assets, legislators, by.x = c("CID"), by.y = c("opensecrets_id")) #Does not match info for 1 yr of David Rivera, 6 years of Tom Marino, and 1 yr of an unidentified mbr.
+
+rm(h_mbr_assets, hassets)
+
+################
+
+
+
+#Aggregate Senate assets and liabiliies by mbr and year
+s_mbr_assets <- aggregate(cbind(minvalue, maxvalue) ~ CID + CalendarYear, data = sassets, sum)
+
+senate <- merge(s_mbr_assets, legislators, by.x = c("CID"), by.y = c("opensecrets_id"))
+
+rm(legislators, legislators_current, legislators_historical, s_mbr_assets, sassets)
+
+
+#Create the avg. assets variable
+library(dplyr)
+house <- house %>% mutate(assets_mean = (minvalue + maxvalue)/2) #avg assets
+
+####
+senate <- senate %>% mutate(assets_mean = (minvalue + maxvalue)/2)
+
+
+#Add in congress and year variables
+house$congress <- NA
+house$congress[house$CalendarYear == "4"] <- 108
+house$congress[house$CalendarYear == "5" | house$CalendarYear == "6"] <- 109
+house$congress[house$CalendarYear == "7" | house$CalendarYear == "8"] <- 110
+house$congress[house$CalendarYear == "9" | house$CalendarYear == "10"] <- 111
+house$congress[house$CalendarYear == "11"| house$CalendarYear == "12" ] <- 112
+house$congress[house$CalendarYear == "13"| house$CalendarYear == "14"] <- 113
+
+
+
+senate$congress <- NA
+senate$congress[senate$CalendarYear == "4"] <- 108
+senate$congress[senate$CalendarYear == "5" | senate$CalendarYear == "6"] <- 109
+senate$congress[senate$CalendarYear == "7" | senate$CalendarYear == "8"] <- 110
+senate$congress[senate$CalendarYear == "9" | senate$CalendarYear == "10"] <- 111
+senate$congress[senate$CalendarYear == "11"| senate$CalendarYear == "12" ] <- 112
+senate$congress[senate$CalendarYear == "13"| senate$CalendarYear == "14"] <- 113
+
+
+house$year <- NA
+house$year[house$CalendarYear == "4"] <- 2004
+house$year[house$CalendarYear == "5"] <- 2005
+house$year[house$CalendarYear == "6"] <- 2006
+house$year[house$CalendarYear == "7"] <- 2007
+house$year[house$CalendarYear == "8"] <- 2008
+house$year[house$CalendarYear == "9"] <- 2009
+house$year[house$CalendarYear == "10"] <- 2010
+house$year[house$CalendarYear == "11"] <- 2011
+house$year[house$CalendarYear == "12"] <- 2012
+house$year[house$CalendarYear == "13"] <- 2013
+house$year[house$CalendarYear == "14"] <- 2014
+
+
+
+senate$year <- NA
+senate$year[senate$CalendarYear == "4"] <- 2004
+senate$year[senate$CalendarYear == "5"] <- 2005
+senate$year[senate$CalendarYear == "6"] <- 2006
+senate$year[senate$CalendarYear == "7"] <- 2007
+senate$year[senate$CalendarYear == "8"] <- 2008
+senate$year[senate$CalendarYear == "9"] <- 2009
+senate$year[senate$CalendarYear == "10"] <- 2010
+senate$year[senate$CalendarYear == "11"] <- 2011
+senate$year[senate$CalendarYear == "12"] <- 2012
+senate$year[senate$CalendarYear == "13"] <- 2013
+senate$year[senate$CalendarYear == "14"] <- 2014
+
+#Add wealth quintiles
+library(dplyr)
+list2env(split(house, house$year), envir = .GlobalEnv)
+
+`2004`$quintile <- as.factor(ntile(`2004`$assets_mean, 5))
+`2005`$quintile <- as.factor(ntile(`2005`$assets_mean, 5))
+`2006`$quintile <- as.factor(ntile(`2006`$assets_mean, 5))
+`2007`$quintile <- as.factor(ntile(`2007`$assets_mean, 5))
+`2008`$quintile <- as.factor(ntile(`2008`$assets_mean, 5))
+`2009`$quintile <- as.factor(ntile(`2009`$assets_mean, 5))
+`2010`$quintile <- as.factor(ntile(`2010`$assets_mean, 5))
+`2011`$quintile <- as.factor(ntile(`2011`$assets_mean, 5))
+`2012`$quintile <- as.factor(ntile(`2012`$assets_mean, 5))
+`2013`$quintile <- as.factor(ntile(`2013`$assets_mean, 5))
+`2014`$quintile <- as.factor(ntile(`2014`$assets_mean, 5))
+
+house <- rbind(`2004`,
+                `2005`,`2006`,
+                `2007`,`2008`,
+                `2009`,`2010`,
+                `2011`,`2012`,
+                `2013`,`2014`)
+
+
+list2env(split(senate, senate$year), envir = .GlobalEnv)
+
+`2004`$quintile <- as.factor(ntile(`2004`$assets_mean, 5))
+`2005`$quintile <- as.factor(ntile(`2005`$assets_mean, 5))
+`2006`$quintile <- as.factor(ntile(`2006`$assets_mean, 5))
+`2007`$quintile <- as.factor(ntile(`2007`$assets_mean, 5))
+`2008`$quintile <- as.factor(ntile(`2008`$assets_mean, 5))
+`2009`$quintile <- as.factor(ntile(`2009`$assets_mean, 5))
+`2010`$quintile <- as.factor(ntile(`2010`$assets_mean, 5))
+`2011`$quintile <- as.factor(ntile(`2011`$assets_mean, 5))
+`2012`$quintile <- as.factor(ntile(`2012`$assets_mean, 5))
+`2013`$quintile <- as.factor(ntile(`2013`$assets_mean, 5))
+`2014`$quintile <- as.factor(ntile(`2014`$assets_mean, 5))
+
+senate <- rbind(`2004`,
+                `2005`,`2006`,
+                `2007`,`2008`,
+                `2009`,`2010`,
+                `2011`,`2012`,
+                `2013`,`2014`)
+
+rm(`2004`,`2005`,`2006`,`2007`,`2008`,`2009`,`2010`,`2011`,`2012`,`2013`,`2014`)
+```
+
+
+```{r, merge acs and congress wealth data}
+
+
+
 ```
 
 
