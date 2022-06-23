@@ -9,8 +9,40 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r, clean open secrets data}
 
-```{r}
+```
+
+
+```{r, clean/merge ACS 5 year estimate data}
+
+#info on comparing data over time: #https://www.census.gov/data/developers/data-sets/acs-5year.html
+#info on tidycensus
+
+
+library(tidyverse)
+library(tidycensus)
+
+census_api_key("68432a7c59eb07fe808c51dd299beee2ec5c765")
+
+
+acs5 <- load_variables(2009, "acs5", cache = TRUE)
+
+get_acs(geography = "congressional district",
+        variables = ,
+        year = )
+
+#how many years can I get? Will I have to aggregate by 5 year estimates?
+```
+
+
+#three ideas: 
+#1) Rich/Poor come from Rich/Poor districts
+#2  less safety = less effectiveness for poor members
+#3  pay increases increase effectiveness 
+
+
+```{r, rich/poor districts}
 
 ```
 
