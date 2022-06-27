@@ -9,12 +9,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r, clean open secrets data}
 
-```
-
-
-```{r, clean/merge ACS 5 year estimate data}
+```{r, load ACS 5 year estimate data}
 
 #info on comparing data over time: #https://www.census.gov/data/developers/data-sets/acs-5year.html
 #info on tidycensus
@@ -28,11 +24,48 @@ census_api_key("68432a7c59eb07fe808c5f1dd299beee2ec5c765")
 vars <- paste0("B19326_001")#median income over past 12 months
 
 acs5 <- load_variables(2009, "acs5", cache = TRUE)
+acs5_2 <- load_variables(2014, "acs5", cache = TRUE)
 
 acs05_09 <- get_acs(geography = "congressional district",
         variables = vars,
         year = 2009)
+
+acs10_14 <- get_acs(geography = "congressional district",
+        variables = vars,
+        year = 2014)
+
+rm(acs5, acs5_2)
 ```
+
+```{r, acs adjust median income for inflation}
+
+library("blscrapeR")
+
+df09 <- inflation_adjust(2009)
+df09 <- df09[df09$year == 2009 | df09$year==2021,] #Scrape the cpi and new value
+
+df14 <- inflation_adjust(2014)
+df14 <- df14[df14$year == 2014 | df14$year==2021,]
+
+
+cpi <- rbind(df09[,1:2],df14[1,1:2])
+
+rm(df09,df14)
+
+
+#construct avg. worth adjusted in 2021 dollars: ((median income*2021 cpi)/old cpi)
+acs05_09$cd_median_income <- ((acs05_09$estimate*270.9654)/214.5647)
+acs05_09$cd_median_income_moe <- ((acs05_09$moe*270.9654)/214.5647)
+
+acs10_14$cd_median_income <- ((acs10_14$estimate*270.9654)/236.7150)
+acs10_14$cd_median_income_moe <- ((acs10_14$moe*270.9654)/236.7150)
+
+
+
+rm(cpi)
+
+```
+
 
 ```{r, clean mbr wealth data (open secrets)}
 library(ggplot2)
@@ -151,6 +184,7 @@ h_mbr_assets <- aggregate(cbind(minvalue, maxvalue) ~ CID + CalendarYear, data =
 
 
 #Merge in legislator identification
+#https://github.com/unitedstates/congress-legislators
 legislators_historical <- read_csv("legislators-historical.csv")
 legislators_current <- read_csv("legislators-current.csv.csv")
 legislators <- rbind(legislators_historical, legislators_current)
@@ -230,26 +264,18 @@ senate$year[senate$CalendarYear == "14"] <- 2014
 
 #Add wealth quintiles
 library(dplyr)
-list2env(split(house, house$year), envir = .GlobalEnv)
+list2env(split(house, house$congress), envir = .GlobalEnv)
 
-`2004`$quintile <- as.factor(ntile(`2004`$assets_mean, 5))
-`2005`$quintile <- as.factor(ntile(`2005`$assets_mean, 5))
-`2006`$quintile <- as.factor(ntile(`2006`$assets_mean, 5))
-`2007`$quintile <- as.factor(ntile(`2007`$assets_mean, 5))
-`2008`$quintile <- as.factor(ntile(`2008`$assets_mean, 5))
-`2009`$quintile <- as.factor(ntile(`2009`$assets_mean, 5))
-`2010`$quintile <- as.factor(ntile(`2010`$assets_mean, 5))
-`2011`$quintile <- as.factor(ntile(`2011`$assets_mean, 5))
-`2012`$quintile <- as.factor(ntile(`2012`$assets_mean, 5))
-`2013`$quintile <- as.factor(ntile(`2013`$assets_mean, 5))
-`2014`$quintile <- as.factor(ntile(`2014`$assets_mean, 5))
+`108`$quintile <- as.factor(ntile(`108`$assets_mean, 5))
+`109`$quintile <- as.factor(ntile(`109`$assets_mean, 5))
+`110`$quintile <- as.factor(ntile(`110`$assets_mean, 5))
+`111`$quintile <- as.factor(ntile(`111`$assets_mean, 5))
+`112`$quintile <- as.factor(ntile(`112`$assets_mean, 5))
+`113`$quintile <- as.factor(ntile(`113`$assets_mean, 5))
 
-house <- rbind(`2004`,
-                `2005`,`2006`,
-                `2007`,`2008`,
-                `2009`,`2010`,
-                `2011`,`2012`,
-                `2013`,`2014`)
+house <- rbind(`108`, `109`, `110`, `111`, `112`, `113`)
+
+
 
 
 list2env(split(senate, senate$year), envir = .GlobalEnv)
@@ -274,13 +300,164 @@ senate <- rbind(`2004`,
                 `2013`,`2014`)
 
 rm(`2004`,`2005`,`2006`,`2007`,`2008`,`2009`,`2010`,`2011`,`2012`,`2013`,`2014`)
+rm(`108`, `109`, `110`, `111`, `112`, `113`)
 ```
 
 
 ```{r, merge acs and congress wealth data}
 
+#use CEL data as a bridge between acs and wealth data
+
+cel <- read.csv("voldenwisemanJOPsenate.csv")
+
+#subset to relevant congresses/Houses (108th: 2003-2005; 110th: 2007-2009 & 11th: 2009-2011; 113th: 2013-2015)
+cel_108_110 <- cel[cel$congress >= 108 & cel$congress <= 110 & cel$house == 1,]
+cel_111_113 <- cel[cel$congress >= 111 & cel$congress <= 113 & cel$house == 1,] 
+  
+rm(cel)
+
+acs05_09$cd <- as.numeric(substr(acs05_09$NAME, 24, 25)) #create cd var
+
+acs05_09$state <- substring(acs05_09$NAME, regexpr(",", acs05_09$NAME) + 2)
+
+acs05_09$st_name <- ifelse(acs05_09$state == "Alabama", "AL",
+                           ifelse(acs05_09$state == "Arizona", "AZ",
+                                  ifelse(acs05_09$state == "Arkansas", "AR",
+                                         ifelse(acs05_09$state == "California", "CA",
+                                                ifelse(acs05_09$state == "Colorado", "CO",
+                                                       ifelse(acs05_09$state == "Connecticut", "CT",
+                                                              ifelse(acs05_09$state == "Delaware", "DE",
+                                                                     ifelse(acs05_09$state == "District of Columbia", "DC",
+                                                                            ifelse(acs05_09$state == "Florida", "FL",
+                                                                                   ifelse(acs05_09$state == "Georgia", "GA",
+                                                                                          ifelse(acs05_09$state == "Hawaii", "HI",
+                                                                                                 ifelse(acs05_09$state == "Idaho", "ID",
+                                                                                                        ifelse(acs05_09$state == "Illinois", "IL",
+                                                                                                               ifelse(acs05_09$state == "Indiana", "IN",
+                                                                                                                      ifelse(acs05_09$state == "Iowa", "IA",
+                                                                                                                             ifelse(acs05_09$state == "Kansas",  "KS",
+                                                                                                                                    ifelse(acs05_09$state == "Kentucky", "KY",
+                                                                                                                                           ifelse(acs05_09$state == "Louisiana", "LA",
+                                                                                                                                                  ifelse(acs05_09$state == "Maine", "ME",
+                                                                                                                                                         ifelse(acs05_09$state == "Maryland", "MD",
+                                                                                                                                                                ifelse(acs05_09$state == "Massachusetts", "MA",
+                                                                                                                                                                       ifelse(acs05_09$state == "Michigan", "MI",
+                                                                                                                                                                              ifelse(acs05_09$state == "Minnesota", "MN",
+                                                                                                                                                                                     ifelse(acs05_09$state == "Mississippi", "MS",
+                                                                                                                                                                                            ifelse(acs05_09$state == "Missouri", "MO",
+                                                                                                                                                                                                   ifelse(acs05_09$state == "Montana", "MT",
+                                                                                                                                                                                                          ifelse(acs05_09$state == "Nebraska", "NE",
+                                                                                                                                                                                                                 ifelse(acs05_09$state == "Nevada", "NV",
+                                                                                                                                                                                                                        ifelse(acs05_09$state == "New Hampshire", "NH",
+                                                                                                                                                                                                                               ifelse(acs05_09$state == "New Jersey", "NJ",
+                                                                                                                                                                                                                                      ifelse(acs05_09$state == "New Mexico", "NM",
+                                                                                                                                                                                                                                             ifelse(acs05_09$state == "New York", "NY",
+                                                                                                                                                                                                                                                    ifelse(acs05_09$state == "North Carolina", "NC",
+                                                                                                                                                                                                                                                           ifelse(acs05_09$state == "North Dakota", "ND",
+                                                                                                                                                                                                                                                                  ifelse(acs05_09$state == "Ohio", "OH",
+                                                                                                                                                                                                                                                                         ifelse(acs05_09$state == "Oklahoma", "OK",
+                                                                                                                                                                                                                                                                                ifelse(acs05_09$state == "Oregon", "OR",
+                                                                                                                                                                                                                                                                                       ifelse(acs05_09$state == "Pennsylvania", "PA",
+                                                                                                                                                                                                                                                                                              ifelse(acs05_09$state == "Rhode Island", "RI",
+                                                                                                                                                                                                                                                                                                     ifelse(acs05_09$state == "South Carolina", "SC",
+                                                                                                                                                                                                                                                                                                            ifelse(acs05_09$state == "South Dakota", "SD",
+                                                                                                                                                                                                                                                                                                                   ifelse(acs05_09$state == "Tennessee", "TN",
+                                                                                                                                                                                                                                                                                                                          ifelse(acs05_09$state == "Texas", "TX",
+                                                                                                                                                                                                                                                                                                                                 ifelse(acs05_09$state == "Utah", "UT",
+                                                                                                                                                                                                                                                                                                                                        ifelse(acs05_09$state == "Vermont", "VT",
+                                                                                                                                                                                                                                                                                                                                               ifelse(acs05_09$state == "Virginia", "VA",
+                                                                                                                                                                                                                                                                                                                                                      ifelse(acs05_09$state == "Washington", "WA",
+                                                                                                                                                                                                                                                                                                                                                             ifelse(acs05_09$state == "West Virginia", "WV",
+                                                                                                                                                                                                                                                                                                                                                                    ifelse(acs05_09$state == "Wisconsin", "WI",
+                                                                                                                                                                                                                                                                                                                                                                           ifelse(acs05_09$state == "Wyoming", "WY", NA))))))))))))))))))))))))))))))))))))))))))))))))))
 
 
+acs05_09$st_name <- ifelse(acs05_09$state == "Puerto Rico", "PR",
+                           ifelse(acs05_09$state == "Alaska", "AK", acs05_09$st_name))
+
+acs05_09$cd[is.na(acs05_09$cd)] <- 1
+
+
+#Run the same code for acs10_14
+
+acs10_14$cd <- as.numeric(substr(acs10_14$NAME, 24, 25)) #create cd var
+
+acs10_14$state <- substring(acs10_14$NAME, regexpr(",", acs10_14$NAME) + 2)
+
+acs10_14$st_name <- ifelse(acs10_14$state == "Alabama", "AL",
+                           ifelse(acs10_14$state == "Arizona", "AZ",
+                                  ifelse(acs10_14$state == "Arkansas", "AR",
+                                         ifelse(acs10_14$state == "California", "CA",
+                                                ifelse(acs10_14$state == "Colorado", "CO",
+                                                       ifelse(acs10_14$state == "Connecticut", "CT",
+                                                              ifelse(acs10_14$state == "Delaware", "DE",
+                                                                     ifelse(acs10_14$state == "District of Columbia", "DC",
+                                                                            ifelse(acs10_14$state == "Florida", "FL",
+                                                                                   ifelse(acs10_14$state == "Georgia", "GA",
+                                                                                          ifelse(acs10_14$state == "Hawaii", "HI",
+                                                                                                 ifelse(acs10_14$state == "Idaho", "ID",
+                                                                                                        ifelse(acs10_14$state == "Illinois", "IL",
+                                                                                                               ifelse(acs10_14$state == "Indiana", "IN",
+                                                                                                                      ifelse(acs10_14$state == "Iowa", "IA",
+                                                                                                                             ifelse(acs10_14$state == "Kansas",  "KS",
+                                                                                                                                    ifelse(acs10_14$state == "Kentucky", "KY",
+                                                                                                                                           ifelse(acs10_14$state == "Louisiana", "LA",
+                                                                                                                                                  ifelse(acs10_14$state == "Maine", "ME",
+                                                                                                                                                         ifelse(acs10_14$state == "Maryland", "MD",
+                                                                                                                                                                ifelse(acs10_14$state == "Massachusetts", "MA",
+                                                                                                                                                                       ifelse(acs10_14$state == "Michigan", "MI",
+                                                                                                                                                                              ifelse(acs10_14$state == "Minnesota", "MN",
+                                                                                                                                                                                     ifelse(acs10_14$state == "Mississippi", "MS",
+                                                                                                                                                                                            ifelse(acs10_14$state == "Missouri", "MO",
+                                                                                                                                                                                                   ifelse(acs10_14$state == "Montana", "MT",
+                                                                                                                                                                                                          ifelse(acs10_14$state == "Nebraska", "NE",
+                                                                                                                                                                                                                 ifelse(acs10_14$state == "Nevada", "NV",
+                                                                                                                                                                                                                        ifelse(acs10_14$state == "New Hampshire", "NH",
+                                                                                                                                                                                                                               ifelse(acs10_14$state == "New Jersey", "NJ",
+                                                                                                                                                                                                                                      ifelse(acs10_14$state == "New Mexico", "NM",
+                                                                                                                                                                                                                                             ifelse(acs10_14$state == "New York", "NY",
+                                                                                                                                                                                                                                                    ifelse(acs10_14$state == "North Carolina", "NC",
+                                                                                                                                                                                                                                                           ifelse(acs10_14$state == "North Dakota", "ND",
+                                                                                                                                                                                                                                                                  ifelse(acs10_14$state == "Ohio", "OH",
+                                                                                                                                                                                                                                                                         ifelse(acs10_14$state == "Oklahoma", "OK",
+                                                                                                                                                                                                                                                                                ifelse(acs10_14$state == "Oregon", "OR",
+                                                                                                                                                                                                                                                                                       ifelse(acs10_14$state == "Pennsylvania", "PA",
+                                                                                                                                                                                                                                                                                              ifelse(acs10_14$state == "Rhode Island", "RI",
+                                                                                                                                                                                                                                                                                                     ifelse(acs10_14$state == "South Carolina", "SC",
+                                                                                                                                                                                                                                                                                                            ifelse(acs10_14$state == "South Dakota", "SD",
+                                                                                                                                                                                                                                                                                                                   ifelse(acs10_14$state == "Tennessee", "TN",
+                                                                                                                                                                                                                                                                                                                          ifelse(acs10_14$state == "Texas", "TX",
+                                                                                                                                                                                                                                                                                                                                 ifelse(acs10_14$state == "Utah", "UT",
+                                                                                                                                                                                                                                                                                                                                        ifelse(acs10_14$state == "Vermont", "VT",
+                                                                                                                                                                                                                                                                                                                                               ifelse(acs10_14$state == "Virginia", "VA",
+                                                                                                                                                                                                                                                                                                                                                      ifelse(acs10_14$state == "Washington", "WA",
+                                                                                                                                                                                                                                                                                                                                                             ifelse(acs10_14$state == "West Virginia", "WV",
+                                                                                                                                                                                                                                                                                                                                                                    ifelse(acs10_14$state == "Wisconsin", "WI",
+                                                                                                                                                                                                                                                                                                                                                                           ifelse(acs10_14$state == "Wyoming", "WY", NA))))))))))))))))))))))))))))))))))))))))))))))))))
+
+
+acs10_14$st_name <- ifelse(acs10_14$state == "Puerto Rico", "PR",
+                           ifelse(acs10_14$state == "Alaska", "AK", acs10_14$st_name))
+
+acs10_14$cd[is.na(acs10_14$cd)] <- 1
+
+
+cel_acs05_09 <- merge(cel_108_110, acs05_09, by = c("st_name", "cd")) #pennsylvania 5th missing for three congresses
+cel_acs10_14 <- merge(cel_111_113, acs10_14, by = c("st_name", "cd"))
+
+cel_acs05_14 <- rbind(cel_acs05_09, cel_acs10_14)
+
+rm(cel_acs05_09, cel_acs10_14, cel_108_110, cel_111_113, acs05_09, acs10_14)
+
+#now merge cel/acs with wealth data
+house_merge <- na.omit(unique(house[,c("icpsr_id", "congress", "quintile")]))
+
+
+cel_acs_os <- merge(cel_acs05_14, house_merge, 
+                    by.x = c("icpsr", "congress"), by.y = c("icpsr_id", "congress")) #shortens data to by Congress
+
+
+rm(cel_acs05_14, house_merge)
 ```
 
 
@@ -290,7 +467,14 @@ rm(`2004`,`2005`,`2006`,`2007`,`2008`,`2009`,`2010`,`2011`,`2012`,`2013`,`2014`)
 #3  pay increases increase effectiveness 
 
 
-```{r, rich/poor districts}
+```{r, Do rich/poor members come from rich/poor districts}
+
+plot(cel_acs_os$quintile, cel_acs_os$cd_median_income)
+
+cel_acs_os$q1 <- ifelse(cel_acs_os$quintile==1, 1, 0)
+cel_acs_os$q5 <- ifelse(cel_acs_os$quintile==5, 1, 0)
+
+summary(lm(log(cd_median_income) ~ q1 + q5, cel_acs_os)) #wealthiest members come from slightly wealthier areas q5 has 2% higher median income. There's no difference for q1.  
 
 ```
 
