@@ -474,7 +474,17 @@ plot(cel_acs_os$quintile, cel_acs_os$cd_median_income)
 cel_acs_os$q1 <- ifelse(cel_acs_os$quintile==1, 1, 0)
 cel_acs_os$q5 <- ifelse(cel_acs_os$quintile==5, 1, 0)
 
-summary(lm(log(cd_median_income) ~ q1 + q5, cel_acs_os)) #wealthiest members come from slightly wealthier areas q5 has 2% higher median income. There's no difference for q1.  
+summary(lm(log(cd_median_income) ~ q1 + q5 + seniority + factor(congress), cel_acs_os)) #wealthiest members come from slightly wealthier areas q5 has 2% higher median income. There's no difference for q1.  
+
+
+cel_acs_os$female <- ifelse(cel_acs_os$majwomen == 1 | cel_acs_os$minwomen== 1, 1, 0)
+
+cel_acs_os <- 
+  cel_acs_os %>%
+  group_by(cel_acs_os$congress, cel_acs_os$st_name) %>% 
+  add_tally(name = "deleg_size")
+
+summary(lm(les ~ q1 + q5 + log(cd_median_income)  + seniority + sensq + state_leg + state_leg_prof + majority + maj_leader + min_leader + maj_leader + chair + subchr + power + meddist + female + afam + latino  + votepct  +  votepct_sq + deleg_size, cel_acs_os)) #one unit increase in cd median income associated with .25 increase in les. 
 
 ```
 
