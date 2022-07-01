@@ -21,7 +21,7 @@ library(tidycensus)
 
 census_api_key("68432a7c59eb07fe808c5f1dd299beee2ec5c765")
 
-vars <- paste0("B19326_001", "B19013_001", "")#median income over past 12 months, median household income, poverty
+vars <- paste0("B19326_001", "B19013_001", "B17001_001")#median income over past 12 months (individual), median household income, poverty status
 
 acs5 <- load_variables(2009, "acs5", cache = TRUE)
 acs5_2 <- load_variables(2014, "acs5", cache = TRUE)
@@ -38,7 +38,71 @@ acs10_14 <- get_acs(geography = "congressional district",
 
 rm(acs5, acs5_2)
 
+###Poverty
+acs05_09t <- get_acs(geography = "congressional district",
+        variables = c(total = "B17001_001"),
+        year = 2009,
+        moe_level = 95) #must first get total pop
 
+acs05_09p <- get_acs(geography = "congressional district",
+        variables = c(poverty = "B17001_002"),
+        year = 2009,
+        moe_level = 95) #then calculate pct. poverty from total pop after joining dat
+
+acs05_09pt <- cbind(acs05_09p, acs05_09t[,3:5]) #join and subset to relevant columns
+
+colnames(acs05_09pt) <- c('GEOID', 'NAME', 
+                           'variable1', 'poverty', 'poverty_moe',
+                           'variable2', 'total', 'total_moe')
+
+acs05_09pt <- acs05_09pt %>%
+  group_by(NAME) %>%
+  summarize(poverty_pct = poverty/total,
+            poverty_pct_moe = moe_prop(num = poverty, denom = total, 
+                           moe_num = poverty_moe, moe_denom = total_moe)) 
+
+
+#Poverty 2010-2014
+acs10_14t <- get_acs(geography = "congressional district",
+        variables = c(total = "B17001_001"),
+        year = 2014,
+        moe_level = 95) #must first get total pop
+
+acs10_14p <- get_acs(geography = "congressional district",
+        variables = c(poverty = "B17001_002"),
+        year = 2014,
+        moe_level = 95) #then calculate pct. poverty from total pop after joining dat
+
+acs10_14pt <- cbind(acs10_14p, acs10_14t[,3:5]) #join and subset to relevant columns
+
+colnames(acs10_14pt) <- c('GEOID', 'NAME', 
+                           'variable1', 'poverty', 'poverty_moe',
+                           'variable2', 'total', 'total_moe')
+
+acs10_14pt <- acs10_14pt %>%
+  group_by(NAME) %>%
+  summarize(poverty_pct = poverty/total,
+            poverty_pct_moe = moe_prop(num = poverty, denom = total, 
+                           moe_num = poverty_moe, moe_denom = total_moe)) 
+
+#gini index for latter years
+
+acs10_14g <- get_acs(geography = "congressional district",
+        variables = c(gini = "B19083_001"),
+        year = 2014,
+        moe_level = 95) # range from 0-1 associated with increasing inequality
+
+colnames(acs10_14g) <- c('GEOID', 'NAME', 
+                           'variable', 'gini', 'gini_moe')
+
+#merge in all variables
+
+acs05_09 <- merge(acs05_09, acs05_09pt, by = "NAME")
+acs10_14 <- merge(acs10_14, acs10_14pt, by = "NAME")
+
+#acs10_14 <- merge(acs10_14, acs10_14g, by = "NAME") #for gini
+
+rm(acs05_09p, acs05_09t, acs10_14p, acs10_14t, acs05_09pt, acs10_14pt, acs10_14g)
 ```
 
 ```{r, acs adjust median income for inflation}
@@ -267,15 +331,21 @@ senate$year[senate$CalendarYear == "13"] <- 2013
 senate$year[senate$CalendarYear == "14"] <- 2014
 
 #Add wealth quintiles
+
+house <- house %>%
+  group_by(icpsr_id, congress) %>%
+  summarise(assets_mean_c = mean(assets_mean))   #average two years together for each congress
+      ####STOP and REMEMBER TO FIND those with missing icpsrs in this data
+
 library(dplyr)
 list2env(split(house, house$congress), envir = .GlobalEnv)
 
-`108`$quintile <- as.factor(ntile(`108`$assets_mean, 5))
-`109`$quintile <- as.factor(ntile(`109`$assets_mean, 5))
-`110`$quintile <- as.factor(ntile(`110`$assets_mean, 5))
-`111`$quintile <- as.factor(ntile(`111`$assets_mean, 5))
-`112`$quintile <- as.factor(ntile(`112`$assets_mean, 5))
-`113`$quintile <- as.factor(ntile(`113`$assets_mean, 5))
+`108`$quintile <- as.factor(ntile(`108`$assets_mean_c, 5))
+`109`$quintile <- as.factor(ntile(`109`$assets_mean_c, 5))
+`110`$quintile <- as.factor(ntile(`110`$assets_mean_c, 5))
+`111`$quintile <- as.factor(ntile(`111`$assets_mean_c, 5))
+`112`$quintile <- as.factor(ntile(`112`$assets_mean_c, 5))
+`113`$quintile <- as.factor(ntile(`113`$assets_mean_c, 5))
 
 house <- rbind(`108`, `109`, `110`, `111`, `112`, `113`)
 
@@ -460,6 +530,8 @@ house_merge <- na.omit(unique(house[,c("icpsr_id", "congress", "quintile")]))
 cel_acs_os <- merge(cel_acs05_14, house_merge, 
                     by.x = c("icpsr", "congress"), by.y = c("icpsr_id", "congress")) #shortens data to by Congress
 
+#cel_acs_os <- merge(cel_acs10_14, house_merge, 
+                    #by.x = c("icpsr", "congress"), by.y = c("icpsr_id", "congress")) #for gini calc in two congresses
 
 rm(cel_acs05_14, house_merge)
 ```
@@ -473,10 +545,12 @@ rm(cel_acs05_14, house_merge)
 ```{r, Do rich/poor members come from rich/poor districts}
 
 #add in variables 
-plot(cel_acs_os$quintile, cel_acs_os$cd_median_income)
+
 
 cel_acs_os$q1 <- ifelse(cel_acs_os$quintile==1, 1, 0)
 cel_acs_os$q5 <- ifelse(cel_acs_os$quintile==5, 1, 0)
+
+plot(factor(cel_acs_os$q1), cel_acs_os$poverty_pct*100)
 
 cel_acs_os$female <- ifelse(cel_acs_os$majwomen == 1 | cel_acs_os$minwomen== 1, 1, 0)
 
@@ -485,11 +559,13 @@ cel_acs_os <-
   group_by(cel_acs_os$congress, cel_acs_os$st_name) %>% 
   add_tally(name = "deleg_size")
 
-summary(lm(log(cd_median_income) ~ q1 + q5 + seniority + factor(congress) + deleg_size  + female, cel_acs_os)) #wealthiest members come from slightly wealthier areas q5 has almost 2% higher median income nationwide, and 4% higher median income within states. There's no difference for q1.  
+summary(lm(log(cd_median_income) ~ q1 + q5 + seniority + factor(congress) + deleg_size  + st_name, cel_acs_os)) #wealthiest members come from slightly wealthier areas q5 has almost 2% higher median income nationwide, and 4.5% higher median income within states. There's no difference for q1.  
 #need to understand why; do wealthier members run more or win more? This is also important for the elections chapter as a potential confounder.
 
 summary(lm(q5 ~ log(cd_median_income) + seniority + factor(congress) + deleg_size + st_name + female, cel_acs_os))
-#shows that 1% increase in cd median income is associated with a 14.5% increase in probability in a q5 rep. Holds most within states.
+#shows that 1% increase in cd median income is associated with a 5-16% increase in probability in a q5 rep. Holds most within states.
+
+summary(lm(q1 ~ log(cd_median_income) + seniority + factor(congress) + deleg_size + st_name + female, cel_acs_os)) #higher income makes it less likely to have a q1 rep but not statistically significant.
 
 
 
@@ -534,12 +610,82 @@ ggplot(data = income_plotdat3, aes(x = congress, y = mean_median_income, color =
 
 #Raises questions about whether these members were most effective at directing federal support to their districts 
 
+#check within state
+income_plotdat4 <- cel_acs_os[,c("icpsr","congress","st_name","cd","quintile","cd_median_income")] #within most states the wealthiest districts are represented by q5 members. Exceptions include A states.
+
+
+
+#poverty stats
+
+cel_acs_os$poverty_pct2 <- cel_acs_os$poverty_pct*100
+
+summary(lm(poverty_pct ~ q1 + q5 + seniority + factor(congress) + deleg_size  + st_name, cel_acs_os)) #q5 has lower poverty. Being q5 rep is associated with a percentage point decline in poverty.
+
+summary(lm(q1 ~ poverty_pct2 + seniority + factor(congress) + deleg_size + st_name + female, cel_acs_os)) #districts with more poverty more likely to have q1 member; percentage point increase in poverty associated with 0.5 pct point increase in likelihood of q1.
+
+summary(lm(q5 ~ poverty_pct2 + seniority + factor(congress) + deleg_size + st_name + female, cel_acs_os)) #districts with more poverty less likely to have q5 member; percentage point increase in poverty associated with 0.8 pct point decrease in likelihood of q5.
+
+
+poverty_plotdat <- cel_acs_os %>%
+  group_by(congress, q1) %>%
+  summarise(mean_poverty = mean(poverty_pct, na.rm = TRUE,),
+            poverty_moe = mean(poverty_pct_moe, na.rm = TRUE)) %>%
+  mutate(quintile = ifelse(q1==1, "Bottom 20%", "21-100%"))
+
+ggplot(data = poverty_plotdat, aes(x = congress, y = mean_poverty, color = quintile)) +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean_poverty-poverty_moe, ymax=mean_poverty+poverty_moe),
+                width = .05,
+                alpha = .5 ) +
+  theme_minimal() #districts with q1 member have higher poverty than everywhere else (1 percentage point), except during great recession.
+
+
+poverty_plotdat3 <- cel_acs_os %>%
+  group_by(congress, q5) %>%
+  summarise(mean_poverty = mean(poverty_pct, na.rm = TRUE,),
+            poverty_moe = mean(poverty_pct_moe, na.rm = TRUE)) %>%
+  mutate(quintile = ifelse(q5==1, "Top 20%", "0-79.9%"))
+
+ggplot(data = poverty_plotdat3, aes(x = congress, y = mean_poverty, color = quintile)) +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean_poverty-poverty_moe, ymax=mean_poverty+poverty_moe),
+                width = .05,
+                alpha = .5 ) +
+  theme_minimal() #districts with q5 member have lower poverty than everywhere else, especially after the great recession, but most are not significant.
+
+
+
+
+#What about number of wealthy ppl in a district? Check average income to get at extreme outliers and whether there are more super wealthy 
+
+#gini index
+
+cel_acs_os$gini2 <- cel_acs_os$gini*100
+
+summary(lm(gini ~ q1 + q5 + seniority + factor(congress) + deleg_size  + st_name, cel_acs_os)) #not clear, but seniority is associated with greater inequality in districts
+
+summary(lm(q1 ~ gini2 + seniority + factor(congress) + deleg_size + st_name + female, cel_acs_os))# no relationship between gini and q1 
+
+summary(lm(q5 ~ gini2 + seniority + factor(congress) + deleg_size + st_name + female, cel_acs_os)) #no relationship between gini and q5
+
+
+
+gini_plotdat3 <- cel_acs_os %>%
+  group_by(congress, q5) %>%
+  summarise(mean_gini = mean(gini, na.rm = TRUE,),
+            gini_moe = mean(gini_moe, na.rm = TRUE)) %>%
+  mutate(quintile = ifelse(q5==1, "Top 20%", "0-79.9%"))
+
+ggplot(data = gini_plotdat3, aes(x = congress, y = mean_gini, color = quintile)) +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean_gini-gini_moe, ymax=mean_gini+gini_moe),
+                width = .05,
+                alpha = .5 ) +
+  theme_minimal()
 ```
 ```{r, les robustness check}
 #Robustness check on LES models?
-summary(lm(les ~ q1 + q5 + log(cd_median_income)  + seniority + sensq + state_leg + state_leg_prof + majority + maj_leader + min_leader + maj_leader + chair + subchr + power + meddist + female + afam + latino  + votepct  +  votepct_sq + deleg_size, cel_acs_os)) #one unit increase in cd median income associated with .33 increase in les.
-
-#
+summary(lm(les ~ q1 + q5 + log(cd_median_income)  + seniority + sensq + state_leg + state_leg_prof + majority + maj_leader + min_leader + maj_leader + chair + subchr + power + meddist + female + afam + latino  + votepct  +  votepct_sq + deleg_size, cel_acs_os)) #one unit increase in cd median income associated with .35 increase in les.
 
 ```
 
